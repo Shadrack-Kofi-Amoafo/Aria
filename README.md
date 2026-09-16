@@ -1,6 +1,6 @@
 # ARIA — Adaptive Reasoning & Intelligence Assistant
 
-Phase 1 foundation for an **offline personal AI tutor**. Python 3.11+; SQLite and
+Phase 2 infrastructure for an **offline personal AI tutor** (built on Phase 1). Python 3.11+; SQLite and
 standard-library runtime only. No API keys, network service, model downloads, or
 course content required.
 
@@ -22,7 +22,27 @@ The demo uses an in-memory database and generic schedule metadata, not teaching
 content. The library's default persistent database is `data/aria.sqlite3`, relative
 to the working directory. Pass an explicit path for a stable deployment location.
 
-## Implemented
+## Phase 2 additions
+
+- Structured, source-labeled learning evidence and replayable concept state.
+- Explicit student facts separated from inferred mastery, confidence and difficulties.
+- Persisted course/topic/concept/document/source contracts, with validated provenance.
+- Formal tool schemas, student scope, output validation and predictable error codes.
+- Bounded deterministic context builder and a swappable structured `ModelProvider`.
+- Scripted `MockModel`, bounded agent loop and behavioral evaluation harness.
+- Additive SQLite v1 → v2 migration; existing public APIs and Phase 1 tests retained.
+
+**ARIA cannot yet tutor from real course material.** The mock is a test script player,
+not an LLM. Course metadata persistence is not course ingestion or RAG.
+
+```sh
+PYTHONPATH=src python examples/phase2_demo.py
+```
+
+See the [Phase 2 guide](docs/phase2.md) for learning policy, tool contracts, provider
+integration, orchestration, evaluation and limitations.
+
+## Existing foundation
 
 - Student profiles: name/preferred name, course IDs, preferences, strengths and weaknesses.
 - Local conversations, study history, mastery, difficulties and misconceptions.
@@ -84,5 +104,5 @@ is not an authentication boundary and should not be exposed directly as a public
 events and schedule. This is logical deletion, not guaranteed forensic erasure;
 backups can retain records. Back up the database while the application is closed.
 
-See [architecture and extension guide](docs/architecture.md) for contracts,
-semantics, limits, and the next-phase integration plan.
+See the [Phase 1 architecture](docs/architecture.md) for the original repository and
+timetable semantics, and the [Phase 2 guide](docs/phase2.md) for current additions.

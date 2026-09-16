@@ -11,3 +11,6 @@ class ChatMessage:
 
 class LanguageModel(Protocol):
     def generate(self, messages: list[ChatMessage], *, max_tokens: int = 512) -> str: ...
+
+# Phase 1 LanguageModel remains the plain-text adapter port for compatibility.
+from .provider import FinalResponse, MockModel, ModelAction, ModelInput, ModelProvider, ToolRequest

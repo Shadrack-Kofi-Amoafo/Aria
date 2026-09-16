@@ -1,5 +1,9 @@
 # Phase 1 architecture and integration guide
 
+This document records the original Phase 1 design. The [Phase 2 guide](phase2.md)
+supersedes its schema version, tool-error behavior, model-provider and orchestration
+sections. Phase 1 repository and timetable APIs remain compatible.
+
 ## Layout and dependency direction
 
 ```text

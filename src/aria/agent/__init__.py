@@ -1,8 +1,9 @@
-"""Explicit, student-scoped tool dispatch; no autonomous model loop yet."""
+"""Explicit, student-scoped tool dispatch, independent of model orchestration."""
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, time
 from enum import Enum
 from typing import Any, Callable
+from .schema import object_schema, validate
 
 from aria.student_memory import EventKind, MemoryRepository, ProfileRepository, StudentMemory
 from aria.timetable import Timetable
@@ -29,6 +30,16 @@ class Tool:
     parameters: dict[str, type]
     handler: Callable[..., Any] | None = None
     mutates: bool = False
+    input_schema: dict | None = None
+    output_schema: dict | None = None
+    student_scope: str = "bound"
+
+    @property
+    def contract(self):
+        return {"input_schema": self.input_schema or object_schema(self.parameters),
+                "output_schema": self.output_schema or {},
+                "classification": "write" if self.mutates else "read",
+                "student_scope": self.student_scope, "confirmation_required": self.mutates}
 
 
 @dataclass(frozen=True)
@@ -54,11 +65,26 @@ class ToolAgent:
             raise ValueError(f"Duplicate tool: {tool.name}")
         self._tools[tool.name] = tool
 
+    def get_tool(self, name: str) -> Tool:
+        return self._tools[name]
+
+    def tools(self) -> tuple[Tool, ...]:
+        return tuple(self._tools.values())
+
+    def replace(self, tool: Tool) -> None:
+        """Explicit contract upgrade; register still rejects accidental duplicates."""
+        if tool.name not in self._tools:
+            raise KeyError(tool.name)
+        self._tools[tool.name] = tool
+
+    def requires_confirmation(self, name: str) -> bool:
+        return bool(self._tools.get(name) and self._tools[name].mutates)
+
     def describe_tools(self) -> list[dict[str, Any]]:
         return [{"name": t.name, "description": t.description,
                  "parameters": {key: kind.__name__ for key, kind in t.parameters.items()},
                  "required": list(t.parameters), "available": t.handler is not None,
-                 "mutates": t.mutates} for t in self._tools.values()]
+                 "mutates": t.mutates, **t.contract} for t in self._tools.values()]
 
     def execute(self, name: str, arguments: dict[str, Any] | None = None, *,
                 confirmed: bool = False) -> ToolResult:
@@ -66,18 +92,25 @@ class ToolAgent:
         if tool is None:
             return ToolResult(False, error=f"Unknown tool: {name}", code="unknown_tool")
         if tool.handler is None:
-            return ToolResult(False, error="Capability not configured in Phase 1", code="unavailable")
+            return ToolResult(False, error="Capability not configured", code="unavailable")
         args = {} if arguments is None else arguments
-        if not isinstance(args, dict) or set(args) != set(tool.parameters):
-            return ToolResult(False, error="Arguments must exactly match required parameters", code="invalid_arguments")
-        if any(type(args[key]) is not kind for key, kind in tool.parameters.items()):
-            return ToolResult(False, error="Invalid argument type", code="invalid_arguments")
+        try:
+            validate(args, tool.contract["input_schema"])
+        except ValueError as exc:
+            return ToolResult(False, error=str(exc), code="invalid_arguments")
         if tool.mutates and confirmed is not True:
             return ToolResult(False, error="Explicit confirmation required", code="confirmation_required")
         try:
-            return ToolResult(True, data=json_value(tool.handler(**args)))
+            data = json_value(tool.handler(**args))
+            try:
+                validate(data, tool.contract["output_schema"])
+            except ValueError:
+                return ToolResult(False, error="Tool output violated its contract", code="invalid_output")
+            return ToolResult(True, data=data)
         except (ValueError, KeyError) as exc:
             return ToolResult(False, error=str(exc), code="domain_error")
+        except Exception:
+            return ToolResult(False, error="Tool execution failed", code="execution_error")
 
 
 def build_agent(student_id: str, profiles: ProfileRepository,

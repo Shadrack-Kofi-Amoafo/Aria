@@ -1,9 +1,10 @@
 """Append-only learning evidence. Latest topic evidence determines current status."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Protocol
 from uuid import uuid4
+import json
 
 from aria.storage import Database
 from aria.validation import aware, nonempty
@@ -14,6 +15,15 @@ class EventKind(str, Enum):
     DIFFICULTY = "difficulty"
     MISCONCEPTION = "misconception"
     STUDY = "study"
+    CONCEPT_VIEWED = "concept_viewed"
+    CONCEPT_REVIEWED = "concept_reviewed"
+    QUESTION_ANSWERED = "question_answered"
+    MISCONCEPTION_DETECTED = "misconception_detected"
+    MISCONCEPTION_RESOLVED = "misconception_resolved"
+    STUDENT_EXPRESSED_CONFUSION = "student_expressed_confusion"
+    STUDENT_EXPRESSED_CONFIDENCE = "student_expressed_confidence"
+    LESSON_COMPLETED = "lesson_completed"
+    EXPLANATION_REQUESTED = "explanation_requested"
 
 
 @dataclass(frozen=True)
@@ -25,6 +35,7 @@ class LearningEvent:
     topic: str
     details: str
     occurred_at: datetime
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -60,13 +71,15 @@ class SQLiteMemoryRepository:
                      topic: str, details: str = "", *, at: datetime | None = None) -> LearningEvent:
         self.db.require_student(student_id)
         kind = EventKind(kind)
+        if kind not in {EventKind.MASTERY, EventKind.DIFFICULTY, EventKind.MISCONCEPTION, EventKind.STUDY}:
+            raise ValueError("Structured events require the evidence repository and source metadata")
         nonempty(course_id, "course_id")
         nonempty(topic, "topic")
         if not isinstance(details, str):
             raise ValueError("details must be a string")
         event = LearningEvent(str(uuid4()), student_id, kind, course_id, topic, details, timestamp(at))
         with self.db.connection:
-            self.db.connection.execute("INSERT INTO learning_events VALUES (?, ?, ?, ?, ?, ?, ?)",
+            self.db.connection.execute("INSERT INTO learning_events (id, student_id, kind, course_id, topic, details, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (event.id, student_id, kind.value, course_id, topic, details, event.occurred_at.isoformat()))
         return event
 
@@ -76,7 +89,7 @@ class SQLiteMemoryRepository:
             "SELECT * FROM learning_events WHERE student_id = ? ORDER BY occurred_at, rowid", (student_id,)
         ).fetchall()
         return [LearningEvent(r["id"], r["student_id"], EventKind(r["kind"]), r["course_id"],
-                              r["topic"], r["details"], datetime.fromisoformat(r["occurred_at"])) for r in rows]
+                              r["topic"], r["details"], datetime.fromisoformat(r["occurred_at"]), json.loads(r["metadata"])) for r in rows]
 
     def record_mastery(self, student_id: str, course_id: str, topic: str, details: str = "",
                        *, at: datetime | None = None) -> LearningEvent:
@@ -128,7 +141,7 @@ class StudentMemory:
     def topic_status(self, student_id: str) -> dict[tuple[str, str], EventKind]:
         result = {}
         for event in self.repository.history(student_id):
-            if event.kind != EventKind.STUDY:
+            if event.kind in {EventKind.MASTERY, EventKind.DIFFICULTY, EventKind.MISCONCEPTION}:
                 result[(event.course_id, event.topic)] = event.kind
         return result
 

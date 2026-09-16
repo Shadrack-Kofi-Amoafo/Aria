@@ -16,7 +16,7 @@ class Database:
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             self.close()
             raise ValueError(f"Unsupported database schema version: {version}")
         if version == 0:
@@ -48,6 +48,15 @@ class Database:
                 PRAGMA user_version = 1;
                 COMMIT;
             """)
+
+        if version < 2:
+            from aria.migrations import migrate_v2
+            try:
+                migrate_v2(self.connection)
+            except Exception:
+                self.connection.rollback()
+                self.close()
+                raise
 
     def require_student(self, student_id: str) -> None:
         if not self.connection.execute(
